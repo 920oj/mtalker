@@ -6,7 +6,6 @@ require (
 	github.com/disgoorg/disgo v0.19.2
 	github.com/disgoorg/godave/golibdave v0.1.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
-	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/kazzmir/opus-go v1.3.0
 )
 

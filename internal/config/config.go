@@ -10,21 +10,12 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-const defaultAudioFile = "rinascita-short.mp3"
-
 type Config struct {
-	Token             string
-	DICPath           string
-	VoicePath         string
-	OpenJTalkPath     string
-	AudioFile         string
-	CommandGuildID    *snowflake.ID
-	SampleVoiceTarget *VoiceTarget
-}
-
-type VoiceTarget struct {
-	GuildID   snowflake.ID
-	ChannelID snowflake.ID
+	Token          string
+	DICPath        string
+	VoicePath      string
+	OpenJTalkPath  string
+	CommandGuildID *snowflake.ID
 }
 
 func Load() (Config, error) {
@@ -32,7 +23,6 @@ func Load() (Config, error) {
 		Token:     strings.TrimSpace(os.Getenv("DISGO_TOKEN")),
 		DICPath:   strings.TrimSpace(os.Getenv("DICPATH")),
 		VoicePath: strings.TrimSpace(os.Getenv("VOICEPATH")),
-		AudioFile: envOrDefault("DISGO_AUDIO_FILE", defaultAudioFile),
 	}
 
 	if err := cfg.validateRequired(); err != nil {
@@ -58,23 +48,7 @@ func Load() (Config, error) {
 	}
 	cfg.CommandGuildID = commandGuildID
 
-	sampleVoiceTarget, err := loadOptionalVoiceTarget()
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.SampleVoiceTarget = sampleVoiceTarget
-
-	if cfg.SampleVoiceTarget != nil {
-		if err := validateExistingPath("DISGO_AUDIO_FILE", cfg.AudioFile); err != nil {
-			return Config{}, err
-		}
-	}
-
 	return cfg, nil
-}
-
-func (c Config) HasSampleVoiceTarget() bool {
-	return c.SampleVoiceTarget != nil
 }
 
 func (c Config) validateRequired() error {
@@ -92,32 +66,6 @@ func (c Config) validateRequired() error {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
 	return nil
-}
-
-func loadOptionalVoiceTarget() (*VoiceTarget, error) {
-	guildIDRaw := strings.TrimSpace(os.Getenv("DISGO_GUILD_ID"))
-	channelIDRaw := strings.TrimSpace(os.Getenv("DISGO_CHANNEL_ID"))
-
-	switch {
-	case guildIDRaw == "" && channelIDRaw == "":
-		return nil, nil
-	case guildIDRaw == "" || channelIDRaw == "":
-		return nil, fmt.Errorf("DISGO_GUILD_ID and DISGO_CHANNEL_ID must both be set to enable startup voice playback")
-	}
-
-	guildID, err := parseSnowflakeEnv("DISGO_GUILD_ID", guildIDRaw)
-	if err != nil {
-		return nil, err
-	}
-	channelID, err := parseSnowflakeEnv("DISGO_CHANNEL_ID", channelIDRaw)
-	if err != nil {
-		return nil, err
-	}
-
-	return &VoiceTarget{
-		GuildID:   guildID,
-		ChannelID: channelID,
-	}, nil
 }
 
 func loadOptionalSnowflakeEnv(key string) (*snowflake.ID, error) {
@@ -149,11 +97,4 @@ func validateExistingPath(key string, value string) error {
 		return fmt.Errorf("%s is invalid: %w", key, err)
 	}
 	return nil
-}
-
-func envOrDefault(key string, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
 }

@@ -3,6 +3,7 @@ package tts
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,12 @@ import (
 
 type Synthesizer interface {
 	Synthesize(textFilePath string, now time.Time) (SynthesisResult, error)
+}
+
+type AudioSource interface {
+	Open() (io.ReadCloser, error)
+	Cleanup() error
+	Description() string
 }
 
 type OpenJTalkConfig struct {
@@ -28,7 +35,7 @@ type OpenJTalkSynthesizer struct {
 }
 
 type SynthesisResult struct {
-	AudioFilePath string
+	AudioSource AudioSource
 }
 
 type SynthesisError struct {
@@ -52,6 +59,22 @@ func (e *SynthesisError) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+type fileAudioSource struct {
+	path string
+}
+
+func (s fileAudioSource) Open() (io.ReadCloser, error) {
+	return os.Open(s.path)
+}
+
+func (s fileAudioSource) Cleanup() error {
+	return removeFileIfExists(s.path)
+}
+
+func (s fileAudioSource) Description() string {
+	return s.path
 }
 
 func NewOpenJTalkSynthesizer(cfg OpenJTalkConfig) *OpenJTalkSynthesizer {
@@ -95,7 +118,7 @@ func (s *OpenJTalkSynthesizer) Synthesize(textFilePath string, now time.Time) (S
 		}
 	}
 
-	return SynthesisResult{AudioFilePath: outputFilePath}, nil
+	return SynthesisResult{AudioSource: fileAudioSource{path: outputFilePath}}, nil
 }
 
 func removeFileIfExists(path string) error {

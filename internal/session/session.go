@@ -18,9 +18,8 @@ var (
 )
 
 type PlaybackRequest struct {
-	Content       string
-	TextFilePath  string
-	AudioFilePath string
+	Content      string
+	TextFilePath string
 }
 
 type CreateParams struct {
@@ -169,6 +168,9 @@ func (s *Session) TrackTempFile(path string) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	s.tempFiles[path] = struct{}{}
 }
 

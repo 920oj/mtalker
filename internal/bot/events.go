@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"sync"
 	"time"
 
+	"github.com/disgoorg/disgo/_examples/voice2/internal/audio"
 	appconfig "github.com/disgoorg/disgo/_examples/voice2/internal/config"
 	"github.com/disgoorg/disgo/_examples/voice2/internal/session"
 	"github.com/disgoorg/disgo/_examples/voice2/internal/tts"
@@ -20,22 +19,13 @@ import (
 
 const voiceConnectTimeout = 10 * time.Second
 
-type StartupVoicePlayer func(client *disgobot.Client, target appconfig.VoiceTarget, audioFile string) error
-
 type Handler struct {
-	startupVoiceTarget *appconfig.VoiceTarget
-	startupAudioFile   string
-	startupVoicePlayer StartupVoicePlayer
-	synthesizer        tts.Synthesizer
-	sessions           *session.Manager
-	readyOnce          sync.Once
+	synthesizer tts.Synthesizer
+	sessions    *session.Manager
 }
 
-func NewHandler(cfg appconfig.Config, startupVoicePlayer StartupVoicePlayer) *Handler {
+func NewHandler(cfg appconfig.Config) *Handler {
 	return &Handler{
-		startupVoiceTarget: cfg.SampleVoiceTarget,
-		startupAudioFile:   cfg.AudioFile,
-		startupVoicePlayer: startupVoicePlayer,
 		synthesizer: tts.NewOpenJTalkSynthesizer(tts.OpenJTalkConfig{
 			CommandPath:    cfg.OpenJTalkPath,
 			DictionaryPath: cfg.DICPath,
@@ -58,28 +48,7 @@ func (h *Handler) Close(ctx context.Context) {
 
 func (h *Handler) OnReady(event *events.Ready) {
 	slog.Info("gateway ready", slog.String("session_id", event.SessionID))
-
-	if h.startupVoiceTarget == nil {
-		slog.Info("slash command handlers are ready")
-		return
-	}
-
-	if h.startupVoicePlayer == nil {
-		slog.Warn("startup voice playback requested but no player is configured")
-		return
-	}
-
-	h.readyOnce.Do(func() {
-		go func() {
-			if err := h.startupVoicePlayer(event.Client(), *h.startupVoiceTarget, h.startupAudioFile); err != nil {
-				slog.Error("startup voice playback stopped",
-					slog.Any("err", err),
-					slog.Uint64("guild_id", uint64(h.startupVoiceTarget.GuildID)),
-					slog.Uint64("channel_id", uint64(h.startupVoiceTarget.ChannelID)),
-				)
-			}
-		}()
-	})
+	slog.Info("slash command handlers are ready")
 }
 
 func (h *Handler) OnApplicationCommandInteractionCreate(event *events.ApplicationCommandInteractionCreate) {
@@ -131,13 +100,14 @@ func (h *Handler) OnMessageCreate(event *events.MessageCreate) {
 		)
 		return
 	}
+	sess.TrackTempFile(textFilePath)
 
 	request := session.PlaybackRequest{
 		Content:      normalized,
 		TextFilePath: textFilePath,
 	}
 	if err := sess.Enqueue(request); err != nil {
-		_ = os.Remove(textFilePath)
+		_ = sess.RemoveTempFile(textFilePath)
 		slog.Warn("failed to enqueue tts request",
 			slog.Any("err", err),
 			slog.Uint64("guild_id", uint64(sess.GuildID())),
@@ -223,7 +193,7 @@ func (h *Handler) handleTTSJoin(event *events.ApplicationCommandInteractionCreat
 	}
 
 	go h.monitorVoiceSession(sess)
-	go h.runSynthesisWorker(sess)
+	go h.runPlaybackWorker(sess)
 
 	h.updateDeferredResponse(
 		event,
@@ -359,7 +329,7 @@ func (h *Handler) monitorVoiceSession(sess *session.Session) {
 	}
 }
 
-func (h *Handler) runSynthesisWorker(sess *session.Session) {
+func (h *Handler) runPlaybackWorker(sess *session.Session) {
 	if h.synthesizer == nil {
 		slog.Warn("tts synthesizer is not configured", slog.Uint64("guild_id", uint64(sess.GuildID())))
 		return
@@ -370,14 +340,17 @@ func (h *Handler) runSynthesisWorker(sess *session.Session) {
 		case <-sess.Context().Done():
 			return
 		case request := <-sess.Queue():
-			h.synthesizeRequest(sess, request)
+			if sess.Context().Err() != nil {
+				return
+			}
+			h.processPlaybackRequest(sess, request)
 		}
 	}
 }
 
-func (h *Handler) synthesizeRequest(sess *session.Session, request session.PlaybackRequest) {
+func (h *Handler) processPlaybackRequest(sess *session.Session, request session.PlaybackRequest) {
 	result, err := h.synthesizer.Synthesize(request.TextFilePath, time.Now())
-	if removeErr := removeTextFile(request.TextFilePath); removeErr != nil {
+	if removeErr := sess.RemoveTempFile(request.TextFilePath); removeErr != nil {
 		slog.Warn("failed to remove synthesized text file",
 			slog.Any("err", removeErr),
 			slog.Uint64("guild_id", uint64(sess.GuildID())),
@@ -389,16 +362,53 @@ func (h *Handler) synthesizeRequest(sess *session.Session, request session.Playb
 		logSynthesisError(sess, request, err)
 		return
 	}
+	if result.AudioSource == nil {
+		slog.Error("tts synthesizer returned no audio source",
+			slog.Uint64("guild_id", uint64(sess.GuildID())),
+			slog.Uint64("text_channel_id", uint64(sess.TextChannelID())),
+			slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
+			slog.String("text_file_path", request.TextFilePath),
+		)
+		return
+	}
 
-	request.AudioFilePath = result.AudioFilePath
-	sess.TrackTempFile(result.AudioFilePath)
+	audioSource := result.AudioSource
 
-	slog.Info("generated wav file from queued message",
+	defer func() {
+		if cleanupErr := audioSource.Cleanup(); cleanupErr != nil {
+			slog.Warn("failed to clean up generated audio source",
+				slog.Any("err", cleanupErr),
+				slog.Uint64("guild_id", uint64(sess.GuildID())),
+				slog.String("audio_source", audioSource.Description()),
+			)
+		}
+	}()
+
+	slog.Info("generated tts audio from queued message",
 		slog.Uint64("guild_id", uint64(sess.GuildID())),
 		slog.Uint64("text_channel_id", uint64(sess.TextChannelID())),
 		slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
-		slog.String("audio_file_path", result.AudioFilePath),
+		slog.String("audio_source", audioSource.Description()),
 		slog.String("content", request.Content),
+	)
+
+	if err := audio.SendOpusFrameStream(sess.Context(), sess.Conn(), mustNewWAVStreamFromSource(audioSource)); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		slog.Error("failed to play generated tts audio",
+			slog.Any("err", err),
+			slog.Uint64("guild_id", uint64(sess.GuildID())),
+			slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
+			slog.String("audio_source", audioSource.Description()),
+		)
+		return
+	}
+
+	slog.Info("completed tts audio playback",
+		slog.Uint64("guild_id", uint64(sess.GuildID())),
+		slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
+		slog.String("audio_source", audioSource.Description()),
 	)
 }
 
@@ -442,12 +452,33 @@ func logSynthesisError(sess *session.Session, request session.PlaybackRequest, e
 	slog.Error("failed to synthesize wav from queued message", attrs...)
 }
 
-func removeTextFile(path string) error {
-	if path == "" {
-		return nil
+func mustNewWAVStreamFromSource(source tts.AudioSource) audio.OpusFrameStream {
+	if source == nil {
+		return &errorStream{err: errors.New("audio source is nil")}
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
+
+	reader, err := source.Open()
+	if err != nil {
+		return &errorStream{err: err}
 	}
+	defer reader.Close()
+
+	stream, err := audio.NewWAVStreamFromReader(reader)
+	if err != nil {
+		return &errorStream{err: err}
+	}
+	return stream
+}
+
+type errorStream struct {
+	err error
+}
+
+func (s *errorStream) NextOpusFrame() ([]byte, error) {
+	return nil, s.err
+}
+
+func (s *errorStream) Close() error {
 	return nil
+
 }

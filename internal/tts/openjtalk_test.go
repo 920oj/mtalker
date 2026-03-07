@@ -2,6 +2,7 @@ package tts
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,20 +48,39 @@ cat > "$out"
 	if err != nil {
 		t.Fatalf("Synthesize() error = %v", err)
 	}
-
-	if !strings.HasPrefix(filepath.Base(result.AudioFilePath), "voice_") {
-		t.Fatalf("AudioFilePath = %q, want voice_*.wav", result.AudioFilePath)
-	}
-	if filepath.Ext(result.AudioFilePath) != ".wav" {
-		t.Fatalf("AudioFilePath ext = %q, want .wav", filepath.Ext(result.AudioFilePath))
+	if result.AudioSource == nil {
+		t.Fatal("AudioSource = nil, want file-backed source")
 	}
 
-	data, err := os.ReadFile(result.AudioFilePath)
+	audioSourceDescription := result.AudioSource.Description()
+	if !strings.HasPrefix(filepath.Base(audioSourceDescription), "voice_") {
+		t.Fatalf("AudioSource description = %q, want voice_*.wav", audioSourceDescription)
+	}
+	if filepath.Ext(audioSourceDescription) != ".wav" {
+		t.Fatalf("AudioSource ext = %q, want .wav", filepath.Ext(audioSourceDescription))
+	}
+
+	reader, err := result.AudioSource.Open()
 	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
+		t.Fatalf("AudioSource.Open() error = %v", err)
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("reader.Close() error = %v", err)
 	}
 	if string(data) != "hello world" {
 		t.Fatalf("generated content = %q, want %q", string(data), "hello world")
+	}
+
+	if err := result.AudioSource.Cleanup(); err != nil {
+		t.Fatalf("AudioSource.Cleanup() error = %v", err)
+	}
+	if _, err := os.Stat(audioSourceDescription); !os.IsNotExist(err) {
+		t.Fatalf("generated file should be removed on cleanup, stat err = %v", err)
 	}
 }
 
