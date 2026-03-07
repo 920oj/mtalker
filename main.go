@@ -104,6 +104,7 @@ func main() {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		defer cancel()
+		handler.Close(ctx)
 		client.Close(ctx)
 	}()
 

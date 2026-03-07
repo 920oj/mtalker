@@ -1,10 +1,12 @@
 package appbot
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 
 	appconfig "github.com/disgoorg/disgo/_examples/voice2/internal/config"
+	"github.com/disgoorg/disgo/_examples/voice2/internal/session"
 	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -16,6 +18,7 @@ type Handler struct {
 	startupVoiceTarget *appconfig.VoiceTarget
 	startupAudioFile   string
 	startupVoicePlayer StartupVoicePlayer
+	sessions           *session.Manager
 	readyOnce          sync.Once
 }
 
@@ -24,7 +27,19 @@ func NewHandler(cfg appconfig.Config, startupVoicePlayer StartupVoicePlayer) *Ha
 		startupVoiceTarget: cfg.SampleVoiceTarget,
 		startupAudioFile:   cfg.AudioFile,
 		startupVoicePlayer: startupVoicePlayer,
+		sessions:           session.NewManager(),
 	}
+}
+
+func (h *Handler) Sessions() *session.Manager {
+	return h.sessions
+}
+
+func (h *Handler) Close(ctx context.Context) {
+	if h.sessions == nil {
+		return
+	}
+	h.sessions.Close(ctx)
 }
 
 func (h *Handler) OnReady(event *events.Ready) {
@@ -72,6 +87,14 @@ func (h *Handler) handleTTSJoin(event *events.ApplicationCommandInteractionCreat
 		h.respondEphemeral(event, "このコマンドはサーバー内でのみ使用できます。")
 		return
 	}
+	if h.sessions != nil && h.sessions.Exists(*guildID) {
+		slog.Info("rejected duplicate ttsjoin command",
+			slog.Uint64("guild_id", uint64(*guildID)),
+			slog.Uint64("actor_user_id", uint64(event.User().ID)),
+		)
+		h.respondEphemeral(event, "このサーバーでは既に読み上げセッションが起動しています。`/ttsdisconnect` を実行してから再度お試しください。")
+		return
+	}
 
 	slog.Info("received ttsjoin command",
 		slog.Uint64("guild_id", uint64(*guildID)),
@@ -89,6 +112,10 @@ func (h *Handler) handleTTSDisconnect(event *events.ApplicationCommandInteractio
 	guildID := event.GuildID()
 	if guildID == nil {
 		h.respondEphemeral(event, "このコマンドはサーバー内でのみ使用できます。")
+		return
+	}
+	if h.sessions == nil || !h.sessions.Exists(*guildID) {
+		h.respondEphemeral(event, "現在、このサーバーで接続中の読み上げセッションはありません。")
 		return
 	}
 
