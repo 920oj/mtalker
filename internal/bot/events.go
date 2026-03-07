@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	appconfig "github.com/disgoorg/disgo/_examples/voice2/internal/config"
 	"github.com/disgoorg/disgo/_examples/voice2/internal/session"
+	"github.com/disgoorg/disgo/_examples/voice2/internal/tts"
 	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -87,6 +89,68 @@ func (h *Handler) OnApplicationCommandInteractionCreate(event *events.Applicatio
 	}
 }
 
+func (h *Handler) OnMessageCreate(event *events.MessageCreate) {
+	if h.sessions == nil || event.GuildID == nil {
+		return
+	}
+
+	sess, ok := h.sessions.Get(*event.GuildID)
+	if !ok {
+		return
+	}
+	if sess.TextChannelID() != event.ChannelID {
+		return
+	}
+	if shouldSkipMessage(event, event.Client().ID()) {
+		return
+	}
+
+	normalized := tts.NormalizeText(event.Message.Content)
+	if normalized == "" {
+		return
+	}
+
+	channelName := tts.DefaultChannelName
+	if channel, ok := event.Channel(); ok {
+		channelName = channel.Name()
+	}
+
+	textFilePath, err := tts.CreateTextFile(channelName, normalized, time.Now())
+	if err != nil {
+		slog.Error("failed to create text file for tts request",
+			slog.Any("err", err),
+			slog.Uint64("guild_id", uint64(sess.GuildID())),
+			slog.Uint64("channel_id", uint64(event.ChannelID)),
+			slog.Uint64("message_id", uint64(event.MessageID)),
+		)
+		return
+	}
+
+	request := session.PlaybackRequest{
+		Content:      normalized,
+		TextFilePath: textFilePath,
+	}
+	if err := sess.Enqueue(request); err != nil {
+		_ = os.Remove(textFilePath)
+		slog.Warn("failed to enqueue tts request",
+			slog.Any("err", err),
+			slog.Uint64("guild_id", uint64(sess.GuildID())),
+			slog.Uint64("channel_id", uint64(event.ChannelID)),
+			slog.Uint64("message_id", uint64(event.MessageID)),
+		)
+		return
+	}
+
+	slog.Info("queued tts request",
+		slog.Uint64("guild_id", uint64(sess.GuildID())),
+		slog.Uint64("channel_id", uint64(event.ChannelID)),
+		slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
+		slog.Uint64("message_id", uint64(event.MessageID)),
+		slog.Int("queue_length", sess.QueueLen()),
+		slog.String("text_file_path", textFilePath),
+	)
+}
+
 func (h *Handler) handleTTSJoin(event *events.ApplicationCommandInteractionCreate) {
 	guildID := event.GuildID()
 	if guildID == nil {
@@ -147,7 +211,7 @@ func (h *Handler) handleTTSJoin(event *events.ApplicationCommandInteractionCreat
 			slog.Any("err", err),
 			slog.Uint64("guild_id", uint64(*guildID)),
 			slog.Uint64("voice_channel_id", uint64(voiceChannelID)),
-			)
+		)
 		h.updateDeferredResponse(event, "ボイスチャンネルへの接続に失敗しました。Bot に接続権限があるか確認して、再度お試しください。")
 		return
 	}
@@ -156,7 +220,7 @@ func (h *Handler) handleTTSJoin(event *events.ApplicationCommandInteractionCreat
 
 	h.updateDeferredResponse(
 		event,
-		fmt.Sprintf("ボイスチャンネル %s に接続しました。読み上げ対象テキストチャンネルは %s です。投稿の逐次読み上げは Phase 4 で実装します。", formatChannelMention(voiceChannelID), formatChannelMention(event.Channel().ID())),
+		fmt.Sprintf("ボイスチャンネル %s に接続しました。読み上げ対象テキストチャンネルは %s です。投稿の監視と読み上げキュー登録を開始しました。音声再生は Phase 5-6 で実装します。", formatChannelMention(voiceChannelID), formatChannelMention(event.Channel().ID())),
 	)
 }
 
@@ -290,4 +354,20 @@ func (h *Handler) monitorVoiceSession(sess *session.Session) {
 
 func formatChannelMention(channelID snowflake.ID) string {
 	return fmt.Sprintf("<#%d>", channelID)
+}
+
+func shouldSkipMessage(event *events.MessageCreate, botUserID snowflake.ID) bool {
+	if event.Message.Type.System() {
+		return true
+	}
+	if event.Message.WebhookID != nil {
+		return true
+	}
+	if event.Message.Author.Bot || event.Message.Author.ID == botUserID {
+		return true
+	}
+	if event.Message.Content == "" {
+		return true
+	}
+	return false
 }

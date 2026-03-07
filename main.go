@@ -87,6 +87,7 @@ func main() {
 		)),
 		bot.WithEventListenerFunc(handler.OnReady),
 		bot.WithEventListenerFunc(handler.OnApplicationCommandInteractionCreate),
+		bot.WithEventListenerFunc(handler.OnMessageCreate),
 		bot.WithVoiceManagerConfigOpts(
 			voice.WithDaveSessionCreateFunc(golibdave.NewSession),
 		),
