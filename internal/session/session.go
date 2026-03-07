@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 
 	"github.com/disgoorg/disgo/voice"
@@ -43,6 +44,7 @@ type Session struct {
 	closed    bool
 	closeOnce sync.Once
 	onClose   func()
+	tempFiles map[string]struct{}
 }
 
 func New(params CreateParams) *Session {
@@ -61,6 +63,7 @@ func New(params CreateParams) *Session {
 		queue:          make(chan PlaybackRequest, queueCapacity),
 		ctx:            ctx,
 		cancel:         cancel,
+		tempFiles:      make(map[string]struct{}),
 	}
 }
 
@@ -132,6 +135,11 @@ func (s *Session) Close(ctx context.Context) {
 		cancel := s.cancel
 		conn := s.conn
 		onClose := s.onClose
+		tempFiles := make([]string, 0, len(s.tempFiles))
+		for path := range s.tempFiles {
+			tempFiles = append(tempFiles, path)
+		}
+		s.tempFiles = make(map[string]struct{})
 		s.mu.Unlock()
 
 		if cancel != nil {
@@ -144,6 +152,9 @@ func (s *Session) Close(ctx context.Context) {
 		if conn != nil {
 			conn.Close(ctx)
 		}
+		for _, path := range tempFiles {
+			_ = removeTrackedFile(path)
+		}
 
 		if onClose != nil {
 			onClose()
@@ -151,8 +162,43 @@ func (s *Session) Close(ctx context.Context) {
 	})
 }
 
+func (s *Session) TrackTempFile(path string) {
+	if path == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tempFiles[path] = struct{}{}
+}
+
+func (s *Session) RemoveTempFile(path string) error {
+	if path == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	delete(s.tempFiles, path)
+	s.mu.Unlock()
+
+	return removeTrackedFile(path)
+}
+
+func (s *Session) TempFileCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.tempFiles)
+}
+
 func (s *Session) setOnClose(onClose func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onClose = onClose
+}
+
+func removeTrackedFile(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

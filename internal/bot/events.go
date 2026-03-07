@@ -26,6 +26,7 @@ type Handler struct {
 	startupVoiceTarget *appconfig.VoiceTarget
 	startupAudioFile   string
 	startupVoicePlayer StartupVoicePlayer
+	synthesizer        tts.Synthesizer
 	sessions           *session.Manager
 	readyOnce          sync.Once
 }
@@ -35,7 +36,12 @@ func NewHandler(cfg appconfig.Config, startupVoicePlayer StartupVoicePlayer) *Ha
 		startupVoiceTarget: cfg.SampleVoiceTarget,
 		startupAudioFile:   cfg.AudioFile,
 		startupVoicePlayer: startupVoicePlayer,
-		sessions:           session.NewManager(),
+		synthesizer: tts.NewOpenJTalkSynthesizer(tts.OpenJTalkConfig{
+			CommandPath:    cfg.OpenJTalkPath,
+			DictionaryPath: cfg.DICPath,
+			VoicePath:      cfg.VoicePath,
+		}),
+		sessions: session.NewManager(),
 	}
 }
 
@@ -217,10 +223,11 @@ func (h *Handler) handleTTSJoin(event *events.ApplicationCommandInteractionCreat
 	}
 
 	go h.monitorVoiceSession(sess)
+	go h.runSynthesisWorker(sess)
 
 	h.updateDeferredResponse(
 		event,
-		fmt.Sprintf("ボイスチャンネル %s に接続しました。読み上げ対象テキストチャンネルは %s です。投稿の監視と読み上げキュー登録を開始しました。音声再生は Phase 5-6 で実装します。", formatChannelMention(voiceChannelID), formatChannelMention(event.Channel().ID())),
+		fmt.Sprintf("ボイスチャンネル %s に接続しました。読み上げ対象テキストチャンネルは %s です。投稿の監視、キュー登録、WAV 生成を開始しました。VC への音声再生は Phase 6 で実装します。", formatChannelMention(voiceChannelID), formatChannelMention(event.Channel().ID())),
 	)
 }
 
@@ -352,6 +359,49 @@ func (h *Handler) monitorVoiceSession(sess *session.Session) {
 	}
 }
 
+func (h *Handler) runSynthesisWorker(sess *session.Session) {
+	if h.synthesizer == nil {
+		slog.Warn("tts synthesizer is not configured", slog.Uint64("guild_id", uint64(sess.GuildID())))
+		return
+	}
+
+	for {
+		select {
+		case <-sess.Context().Done():
+			return
+		case request := <-sess.Queue():
+			h.synthesizeRequest(sess, request)
+		}
+	}
+}
+
+func (h *Handler) synthesizeRequest(sess *session.Session, request session.PlaybackRequest) {
+	result, err := h.synthesizer.Synthesize(request.TextFilePath, time.Now())
+	if removeErr := removeTextFile(request.TextFilePath); removeErr != nil {
+		slog.Warn("failed to remove synthesized text file",
+			slog.Any("err", removeErr),
+			slog.Uint64("guild_id", uint64(sess.GuildID())),
+			slog.String("text_file_path", request.TextFilePath),
+		)
+	}
+
+	if err != nil {
+		logSynthesisError(sess, request, err)
+		return
+	}
+
+	request.AudioFilePath = result.AudioFilePath
+	sess.TrackTempFile(result.AudioFilePath)
+
+	slog.Info("generated wav file from queued message",
+		slog.Uint64("guild_id", uint64(sess.GuildID())),
+		slog.Uint64("text_channel_id", uint64(sess.TextChannelID())),
+		slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
+		slog.String("audio_file_path", result.AudioFilePath),
+		slog.String("content", request.Content),
+	)
+}
+
 func formatChannelMention(channelID snowflake.ID) string {
 	return fmt.Sprintf("<#%d>", channelID)
 }
@@ -370,4 +420,34 @@ func shouldSkipMessage(event *events.MessageCreate, botUserID snowflake.ID) bool
 		return true
 	}
 	return false
+}
+
+func logSynthesisError(sess *session.Session, request session.PlaybackRequest, err error) {
+	attrs := []any{
+		slog.Any("err", err),
+		slog.Uint64("guild_id", uint64(sess.GuildID())),
+		slog.Uint64("text_channel_id", uint64(sess.TextChannelID())),
+		slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
+		slog.String("text_file_path", request.TextFilePath),
+	}
+
+	var synthesisErr *tts.SynthesisError
+	if errors.As(err, &synthesisErr) {
+		attrs = append(attrs,
+			slog.String("stderr", synthesisErr.Stderr),
+			slog.String("audio_file_path", synthesisErr.OutputFilePath),
+		)
+	}
+
+	slog.Error("failed to synthesize wav from queued message", attrs...)
+}
+
+func removeTextFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
