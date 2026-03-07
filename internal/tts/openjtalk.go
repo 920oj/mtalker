@@ -102,7 +102,16 @@ func (s *OpenJTalkSynthesizer) Synthesize(textFilePath string, now time.Time) (S
 	}
 	defer inputFile.Close()
 
-	outputFilePath := filepath.Join(s.tempDir, fmt.Sprintf("voice_%d.wav", now.UnixNano()))
+	outputFile, err := os.CreateTemp(s.tempDir, fmt.Sprintf("voice_%d_*.wav", now.UnixNano()))
+	if err != nil {
+		return SynthesisResult{}, fmt.Errorf("create output file: %w", err)
+	}
+	outputFilePath := filepath.Clean(outputFile.Name())
+	if err := outputFile.Close(); err != nil {
+		_ = removeFileIfExists(outputFilePath)
+		return SynthesisResult{}, fmt.Errorf("close output file: %w", err)
+	}
+
 	cmd := exec.Command(s.commandPath, "-x", s.dictionaryPath, "-m", s.voicePath, "-ow", outputFilePath)
 	cmd.Stdin = inputFile
 

@@ -63,3 +63,37 @@ func TestCreateTextFile(t *testing.T) {
 		t.Fatalf("file content = %q, want %q", string(data), "hello")
 	}
 }
+
+func TestCreateTextFileCreatesUniquePaths(t *testing.T) {
+	now := time.Unix(1700000000, 123)
+	path1, err := CreateTextFile("general/chat", "hello", now)
+	if err != nil {
+		t.Fatalf("CreateTextFile(path1) error = %v", err)
+	}
+	defer os.Remove(path1)
+
+	path2, err := CreateTextFile("general/chat", "world", now)
+	if err != nil {
+		t.Fatalf("CreateTextFile(path2) error = %v", err)
+	}
+	defer os.Remove(path2)
+
+	if path1 == path2 {
+		t.Fatalf("CreateTextFile() paths are identical: %q", path1)
+	}
+
+	if filepath.Base(path1) == filepath.Base(path2) {
+		t.Fatalf("CreateTextFile() file names are identical: %q", filepath.Base(path1))
+	}
+	if !strings.Contains(filepath.Base(path1), "general_chat") || !strings.Contains(filepath.Base(path2), "general_chat") {
+		t.Fatalf("CreateTextFile() file names should contain sanitized channel name: %q / %q", filepath.Base(path1), filepath.Base(path2))
+	}
+	if !strings.Contains(filepath.Base(path1), ".txt") || !strings.Contains(filepath.Base(path2), ".txt") {
+		t.Fatalf("CreateTextFile() file names should end with txt pattern: %q / %q", filepath.Base(path1), filepath.Base(path2))
+	}
+	if data, err := os.ReadFile(path2); err != nil {
+		t.Fatalf("ReadFile(path2) error = %v", err)
+	} else if string(data) != "world" {
+		t.Fatalf("path2 content = %q, want %q", string(data), "world")
+	}
+}

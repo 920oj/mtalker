@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -45,5 +46,21 @@ func TestSessionRemoveTempFile(t *testing.T) {
 	}
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 		t.Fatalf("temp file should be removed, stat err = %v", err)
+	}
+}
+
+func TestSessionCloseCallsBeforeCloseHook(t *testing.T) {
+	var calls atomic.Int32
+	session := New(CreateParams{
+		BeforeClose: func() {
+			calls.Add(1)
+		},
+	})
+
+	session.Close(context.Background())
+	session.Close(context.Background())
+
+	if calls.Load() != 1 {
+		t.Fatalf("beforeClose calls = %d, want 1", calls.Load())
 	}
 }

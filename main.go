@@ -18,6 +18,8 @@ import (
 	"github.com/disgoorg/disgo/voice"
 )
 
+const shutdownTimeout = 5 * time.Second
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
@@ -49,41 +51,61 @@ func main() {
 
 	client, err := disgo.New(cfg.Token,
 		bot.WithGatewayConfigOpts(gateway.WithIntents(
+			gateway.IntentGuilds,
 			gateway.IntentGuildVoiceStates,
 			gateway.IntentGuildMessages,
 			gateway.IntentMessageContent,
 		)),
 		bot.WithEventListenerFunc(handler.OnReady),
 		bot.WithEventListenerFunc(handler.OnApplicationCommandInteractionCreate),
+		bot.WithEventListenerFunc(handler.OnVoiceServerUpdate),
+		bot.WithEventListenerFunc(handler.OnGuildVoiceStateUpdate),
 		bot.WithEventListenerFunc(handler.OnMessageCreate),
 		bot.WithVoiceManagerConfigOpts(
 			voice.WithDaveSessionCreateFunc(golibdave.NewSession),
+			voice.WithConnCreateFunc(appbot.NewVoiceConnCreateFunc(handler)),
 		),
 	)
 	if err != nil {
 		slog.Error("error creating client", slog.Any("err", err))
 		return
 	}
+	shutdown := func(ctx context.Context) {
+		if client == nil {
+			return
+		}
+		handler.Close(ctx)
+		client.Close(ctx)
+		client = nil
+	}
 
 	if err := appbot.RegisterCommands(client, cfg.CommandGuildID); err != nil {
 		slog.Error("error registering slash commands", slog.Any("err", err))
+		shutdown(context.Background())
 		return
 	}
 
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
-		handler.Close(ctx)
-		client.Close(ctx)
-	}()
-
 	if err = client.OpenGateway(context.TODO()); err != nil {
 		slog.Error("error connecting to gateway", slog.Any("error", err))
+		shutdown(context.Background())
 		return
 	}
 
 	slog.Info("bot is now running. Press CTRL-C to exit.")
-	s := make(chan os.Signal, 1)
-	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-s
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	defer signal.Stop(signals)
+
+	firstSignal := <-signals
+	slog.Info("shutdown signal received", slog.String("signal", firstSignal.String()))
+
+	go func() {
+		secondSignal := <-signals
+		slog.Warn("received second shutdown signal, forcing exit", slog.String("signal", secondSignal.String()))
+		os.Exit(1)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	shutdown(ctx)
 }

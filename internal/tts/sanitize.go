@@ -70,12 +70,23 @@ func SanitizeFileNameComponent(input string) string {
 }
 
 func CreateTextFile(channelName string, content string, now time.Time) (string, error) {
-	fileName := fmt.Sprintf("%s.%d.txt", SanitizeFileNameComponent(channelName), now.UnixNano())
-	filePath := filepath.Join(os.TempDir(), fileName)
-
-	if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
+	fileNamePattern := fmt.Sprintf("%s.%d.*.txt", SanitizeFileNameComponent(channelName), now.UnixNano())
+	file, err := os.CreateTemp(os.TempDir(), fileNamePattern)
+	if err != nil {
 		return "", err
 	}
+
+	filePath := filepath.Clean(file.Name())
+	if _, err := file.WriteString(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(filePath)
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(filePath)
+		return "", err
+	}
+
 	return filePath, nil
 }
 

@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -27,6 +29,7 @@ type CreateParams struct {
 	TextChannelID  snowflake.ID
 	VoiceChannelID snowflake.ID
 	Conn           voice.Conn
+	BeforeClose    func()
 	QueueCapacity  int
 }
 
@@ -39,11 +42,14 @@ type Session struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 
-	mu        sync.RWMutex
-	closed    bool
-	closeOnce sync.Once
-	onClose   func()
-	tempFiles map[string]struct{}
+	sendMu       sync.Mutex
+	mu           sync.RWMutex
+	closed       bool
+	idleSpeaking bool
+	closeOnce    sync.Once
+	beforeClose  func()
+	onClose      func()
+	tempFiles    map[string]struct{}
 }
 
 func New(params CreateParams) *Session {
@@ -62,6 +68,7 @@ func New(params CreateParams) *Session {
 		queue:          make(chan PlaybackRequest, queueCapacity),
 		ctx:            ctx,
 		cancel:         cancel,
+		beforeClose:    params.BeforeClose,
 		tempFiles:      make(map[string]struct{}),
 	}
 }
@@ -131,8 +138,11 @@ func (s *Session) Close(ctx context.Context) {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
+		s.idleSpeaking = false
 		cancel := s.cancel
 		conn := s.conn
+		s.conn = nil
+		beforeClose := s.beforeClose
 		onClose := s.onClose
 		tempFiles := make([]string, 0, len(s.tempFiles))
 		for path := range s.tempFiles {
@@ -148,9 +158,18 @@ func (s *Session) Close(ctx context.Context) {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		if conn != nil {
-			conn.Close(ctx)
+		if beforeClose != nil {
+			beforeClose()
 		}
+		s.sendMu.Lock()
+		if err := closeVoiceConn(ctx, conn); err != nil {
+			slog.Warn("failed to close voice connection",
+				slog.Any("err", err),
+				slog.Uint64("guild_id", uint64(s.guildID)),
+				slog.Uint64("voice_channel_id", uint64(s.voiceChannelID)),
+			)
+		}
+		s.sendMu.Unlock()
 		for _, path := range tempFiles {
 			_ = removeTrackedFile(path)
 		}
@@ -159,6 +178,57 @@ func (s *Session) Close(ctx context.Context) {
 			onClose()
 		}
 	})
+}
+
+func (s *Session) WithConnExclusive(action func(conn voice.Conn) error) error {
+	if action == nil {
+		return nil
+	}
+
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
+	if s.ctx.Err() != nil {
+		return ErrSessionClosed
+	}
+
+	conn := s.Conn()
+	if conn == nil {
+		return ErrSessionClosed
+	}
+
+	return action(conn)
+}
+
+func (s *Session) IdleSpeakingActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.idleSpeaking
+}
+
+func (s *Session) SetIdleSpeakingActive(active bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		s.idleSpeaking = false
+		return
+	}
+	s.idleSpeaking = active
+}
+
+func closeVoiceConn(ctx context.Context, conn voice.Conn) (err error) {
+	if conn == nil {
+		return nil
+	}
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic while closing voice connection: %v", recovered)
+		}
+	}()
+
+	conn.Close(ctx)
+	return nil
 }
 
 func (s *Session) TrackTempFile(path string) {

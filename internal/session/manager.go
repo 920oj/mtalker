@@ -63,6 +63,19 @@ func (m *Manager) Destroy(ctx context.Context, guildID snowflake.ID) error {
 	return nil
 }
 
+func (m *Manager) Detach(guildID snowflake.ID) (*Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	session, ok := m.sessions[guildID]
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+
+	delete(m.sessions, guildID)
+	return session, nil
+}
+
 func (m *Manager) Close(ctx context.Context) {
 	for _, session := range m.Snapshot() {
 		session.Close(ctx)

@@ -129,6 +129,52 @@ exit 1
 	}
 }
 
+func TestOpenJTalkSynthesizerSynthesizeCreatesUniqueAudioSourcePaths(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "open_jtalk")
+	writeExecutable(t, scriptPath, `#!/bin/sh
+out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -ow) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cat > "$out"
+`)
+
+	textFilePath := filepath.Join(tempDir, "input.txt")
+	if err := os.WriteFile(textFilePath, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	synthesizer := NewOpenJTalkSynthesizer(OpenJTalkConfig{
+		CommandPath:    scriptPath,
+		DictionaryPath: filepath.Join(tempDir, "dic"),
+		VoicePath:      filepath.Join(tempDir, "voice.htsvoice"),
+		TempDir:        tempDir,
+	})
+
+	result1, err := synthesizer.Synthesize(textFilePath, time.Unix(1700000000, 999))
+	if err != nil {
+		t.Fatalf("Synthesize(result1) error = %v", err)
+	}
+	defer result1.AudioSource.Cleanup()
+
+	result2, err := synthesizer.Synthesize(textFilePath, time.Unix(1700000000, 999))
+	if err != nil {
+		t.Fatalf("Synthesize(result2) error = %v", err)
+	}
+	defer result2.AudioSource.Cleanup()
+
+	if result1.AudioSource == nil || result2.AudioSource == nil {
+		t.Fatal("AudioSource should not be nil")
+	}
+	if result1.AudioSource.Description() == result2.AudioSource.Description() {
+		t.Fatalf("audio source paths are identical: %q", result1.AudioSource.Description())
+	}
+}
+
 func writeExecutable(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
