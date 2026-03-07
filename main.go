@@ -19,9 +19,9 @@ import (
 	"github.com/kazzmir/opus-go/opus"
 
 	"github.com/disgoorg/disgo"
+	appbot "github.com/disgoorg/disgo/_examples/voice2/internal/bot"
 	appconfig "github.com/disgoorg/disgo/_examples/voice2/internal/config"
 	"github.com/disgoorg/disgo/bot"
-	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/voice"
 )
@@ -61,38 +61,43 @@ func main() {
 		return
 	}
 
-	slog.Info("startup validation passed",
+	startupAttrs := []any{
 		slog.String("open_jtalk_path", cfg.OpenJTalkPath),
 		slog.String("dic_path", cfg.DICPath),
 		slog.String("voice_path", cfg.VoicePath),
 		slog.Bool("startup_voice_playback_enabled", cfg.HasSampleVoiceTarget()),
-	)
+	}
+	if cfg.CommandGuildID != nil {
+		startupAttrs = append(startupAttrs,
+			slog.String("command_scope", "guild"),
+			slog.Uint64("command_guild_id", uint64(*cfg.CommandGuildID)),
+		)
+	} else {
+		startupAttrs = append(startupAttrs, slog.String("command_scope", "global"))
+	}
+	slog.Info("startup validation passed", startupAttrs...)
+
+	handler := appbot.NewHandler(cfg, play)
 
 	client, err := disgo.New(cfg.Token,
-		bot.WithGatewayConfigOpts(gateway.WithIntents(gateway.IntentGuildVoiceStates)),
-		bot.WithEventListenerFunc(func(e *events.Ready) {
-			slog.Info("gateway ready", slog.String("session_id", e.SessionID))
-			if cfg.SampleVoiceTarget == nil {
-				slog.Info("startup voice playback is disabled; waiting for Phase 1 command flow")
-				return
-			}
-
-			go func() {
-				if err := play(e.Client(), *cfg.SampleVoiceTarget, cfg.AudioFile); err != nil {
-					slog.Error("startup voice playback stopped",
-						slog.Any("err", err),
-						slog.Uint64("guild_id", uint64(cfg.SampleVoiceTarget.GuildID)),
-						slog.Uint64("channel_id", uint64(cfg.SampleVoiceTarget.ChannelID)),
-					)
-				}
-			}()
-		}),
+		bot.WithGatewayConfigOpts(gateway.WithIntents(
+			gateway.IntentGuildVoiceStates,
+			gateway.IntentGuildMessages,
+			gateway.IntentMessageContent,
+		)),
+		bot.WithEventListenerFunc(handler.OnReady),
+		bot.WithEventListenerFunc(handler.OnApplicationCommandInteractionCreate),
 		bot.WithVoiceManagerConfigOpts(
 			voice.WithDaveSessionCreateFunc(golibdave.NewSession),
 		),
 	)
 	if err != nil {
 		slog.Error("error creating client", slog.Any("err", err))
+		return
+	}
+
+	if err := appbot.RegisterCommands(client, cfg.CommandGuildID); err != nil {
+		slog.Error("error registering slash commands", slog.Any("err", err))
 		return
 	}
 
@@ -107,7 +112,7 @@ func main() {
 		return
 	}
 
-	slog.Info("ExampleBot is now running. Press CTRL-C to exit.")
+	slog.Info("bot is now running. Press CTRL-C to exit.")
 	s := make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-s

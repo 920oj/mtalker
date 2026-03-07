@@ -18,6 +18,7 @@ type Config struct {
 	VoicePath         string
 	OpenJTalkPath     string
 	AudioFile         string
+	CommandGuildID    *snowflake.ID
 	SampleVoiceTarget *VoiceTarget
 }
 
@@ -50,6 +51,12 @@ func Load() (Config, error) {
 	if err := validateExistingPath("VOICEPATH", cfg.VoicePath); err != nil {
 		return Config{}, err
 	}
+
+	commandGuildID, err := loadOptionalSnowflakeEnv("DISGO_COMMAND_GUILD_ID")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.CommandGuildID = commandGuildID
 
 	sampleVoiceTarget, err := loadOptionalVoiceTarget()
 	if err != nil {
@@ -111,6 +118,19 @@ func loadOptionalVoiceTarget() (*VoiceTarget, error) {
 		GuildID:   guildID,
 		ChannelID: channelID,
 	}, nil
+}
+
+func loadOptionalSnowflakeEnv(key string) (*snowflake.ID, error) {
+	rawValue := strings.TrimSpace(os.Getenv(key))
+	if rawValue == "" {
+		return nil, nil
+	}
+
+	id, err := parseSnowflakeEnv(key, rawValue)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func parseSnowflakeEnv(key string, value string) (snowflake.ID, error) {
