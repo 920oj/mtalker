@@ -20,7 +20,7 @@ type Config struct {
 
 func Load() (Config, error) {
 	cfg := Config{
-		Token:     strings.TrimSpace(os.Getenv("DISGO_TOKEN")),
+		Token:     strings.TrimSpace(os.Getenv("DISCORD_TOKEN")),
 		DICPath:   strings.TrimSpace(os.Getenv("DICPATH")),
 		VoicePath: strings.TrimSpace(os.Getenv("VOICEPATH")),
 	}
@@ -42,7 +42,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	commandGuildID, err := loadOptionalSnowflakeEnv("DISGO_COMMAND_GUILD_ID")
+	commandGuildID, err := loadOptionalSnowflakeEnv("DISCORD_COMMAND_GUILD_ID")
 	if err != nil {
 		return Config{}, err
 	}
@@ -54,7 +54,7 @@ func Load() (Config, error) {
 func (c Config) validateRequired() error {
 	missing := make([]string, 0, 3)
 	if c.Token == "" {
-		missing = append(missing, "DISGO_TOKEN")
+		missing = append(missing, "DISCORD_TOKEN")
 	}
 	if c.DICPath == "" {
 		missing = append(missing, "DICPATH")

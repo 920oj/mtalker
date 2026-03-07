@@ -1,6 +1,6 @@
-module github.com/disgoorg/disgo/_examples/voice2
+module github.com/mikuta0407/mtalker
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/disgoorg/disgo v0.19.2

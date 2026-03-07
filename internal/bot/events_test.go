@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/disgoorg/disgo/_examples/voice2/internal/session"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	botgateway "github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/mikuta0407/mtalker/internal/session"
 )
 
 func TestPrimeVoiceConnectionSendsSilenceFrame(t *testing.T) {

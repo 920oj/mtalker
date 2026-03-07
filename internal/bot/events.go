@@ -10,15 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/disgoorg/disgo/_examples/voice2/internal/audio"
-	appconfig "github.com/disgoorg/disgo/_examples/voice2/internal/config"
-	"github.com/disgoorg/disgo/_examples/voice2/internal/session"
-	"github.com/disgoorg/disgo/_examples/voice2/internal/tts"
 	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/mikuta0407/mtalker/internal/audio"
+	appconfig "github.com/mikuta0407/mtalker/internal/config"
+	"github.com/mikuta0407/mtalker/internal/session"
+	"github.com/mikuta0407/mtalker/internal/tts"
 )
 
 const voiceConnectTimeout = 30 * time.Second

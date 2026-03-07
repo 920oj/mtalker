@@ -11,11 +11,11 @@ import (
 	"github.com/disgoorg/godave/golibdave"
 
 	"github.com/disgoorg/disgo"
-	appbot "github.com/disgoorg/disgo/_examples/voice2/internal/bot"
-	appconfig "github.com/disgoorg/disgo/_examples/voice2/internal/config"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/voice"
+	appbot "github.com/mikuta0407/mtalker/internal/bot"
+	appconfig "github.com/mikuta0407/mtalker/internal/config"
 )
 
 const shutdownTimeout = 5 * time.Second
