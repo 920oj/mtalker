@@ -17,6 +17,28 @@ func TestNormalizeTextReplacesURLAndNewlines(t *testing.T) {
 	}
 }
 
+func TestNormalizeTextRemovesMentions(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"single mention", "<@1234567890123> こんにちは", "こんにちは"},
+		{"nickname mention", "<@!1234567890123> こんにちは", "こんにちは"},
+		{"mention in middle", "hello <@1234567890123> world", "hello  world"},
+		{"multiple mentions", "<@111111111111> <@222222222222> テスト", "テスト"},
+		{"mention only", "<@1234567890123>", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeText(tt.input)
+			if got != tt.want {
+				t.Fatalf("NormalizeText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeTextTruncatesOverMaxLength(t *testing.T) {
 	input := strings.Repeat("あ", MaxTextLength+1)
 	got := NormalizeText(input)

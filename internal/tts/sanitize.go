@@ -17,7 +17,8 @@ const (
 	DefaultChannelName   = "channel"
 )
 
-var urlPattern = regexp.MustCompile(`https?://\S+`)
+var urlPattern     = regexp.MustCompile(`https?://\S+`)
+var mentionPattern = regexp.MustCompile(`<@!?\d+>`)
 
 func NormalizeText(input string) string {
 	normalized := strings.TrimSpace(input)
@@ -26,6 +27,7 @@ func NormalizeText(input string) string {
 	}
 
 	normalized = urlPattern.ReplaceAllString(normalized, "URL")
+	normalized = mentionPattern.ReplaceAllString(normalized, "")
 	normalized = strings.NewReplacer("\r\n", "", "\n", "", "\r", "").Replace(normalized)
 	normalized = strings.TrimSpace(normalized)
 	if normalized == "" {
