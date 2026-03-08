@@ -160,7 +160,13 @@ func (h *Handler) OnMessageCreate(event *events.MessageCreate) {
 	for i, user := range event.Message.Mentions {
 		displayName := user.EffectiveName()
 		if event.GuildID != nil {
-			if member, err := event.Client().Rest.GetMember(*event.GuildID, user.ID); err == nil {
+			if client := event.Client(); client.Caches != nil {
+				if member, ok := client.Caches.Member(*event.GuildID, user.ID); ok {
+					displayName = member.EffectiveName()
+				} else if member, err := client.Rest.GetMember(*event.GuildID, user.ID); err == nil {
+					displayName = member.EffectiveName()
+				}
+			} else if member, err := event.Client().Rest.GetMember(*event.GuildID, user.ID); err == nil {
 				displayName = member.EffectiveName()
 			}
 		}
