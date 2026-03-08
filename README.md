@@ -34,8 +34,9 @@
 - Docker Compose v2 (`docker compose`)
 - Discord Bot トークン
 
-1. [docker-compose.yaml](docker-compose.yaml) の `DISCORD_TOKEN` を自分の Bot トークンへ書き換えます
-2. 次を実行します
+1. このリポジトリをcloneします
+2. [docker-compose.yaml](docker-compose.yaml) の `DISCORD_TOKEN` を自分の Bot トークンへ書き換えます
+3. 次を実行します
 
 ```bash
 docker compose up -d
@@ -154,11 +155,13 @@ export VOICEPATH="$(brew --prefix open-jtalk)/voice/mei/mei_normal.htsvoice"
 
 #### Bot に必要な権限の目安
 
-- テキストチャンネルを閲覧できること
-- ボイスチャンネルへ接続できること
-- ボイスチャンネルで発話できること
-
-少なくとも、読み上げ対象テキストチャンネルの閲覧権限と、接続先 VC の `Connect` / `Speak` 権限が必要です。
+- OAuth2の設定
+  - bot
+    - テキストの権限
+      - 「メッセージを送る」
+    - 音声の権限
+      - 接続
+      - 発言
 
 ## 環境変数
 
