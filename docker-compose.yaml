@@ -1,0 +1,16 @@
+services:
+  mtalker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LIBDAVE_VERSION: v1.1.0
+    container_name: mtalker
+    restart: unless-stopped
+    environment:
+      # 必須: Discord Bot トークンを設定してください
+      DISCORD_TOKEN: "SET_YOUR_DISCORD_BOT_TOKEN"
+      # Docker イメージ内でインストール済みの open_jtalk 辞書です
+      DICPATH: "/var/lib/mecab/dic/open-jtalk/naist-jdic"
+      # Docker ビルド時に取得する tohoku-f01 voice です
+      VOICEPATH: "/opt/voices/tohoku-f01-neutral.htsvoice"
