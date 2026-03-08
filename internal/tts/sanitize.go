@@ -20,14 +20,20 @@ const (
 var urlPattern     = regexp.MustCompile(`https?://\S+`)
 var mentionPattern = regexp.MustCompile(`<@!?\d+>`)
 
-func NormalizeText(input string) string {
+// Mention holds a Discord user ID and their display name for TTS replacement.
+type Mention struct {
+	ID          string
+	DisplayName string
+}
+
+func NormalizeText(input string, mentions []Mention) string {
 	normalized := strings.TrimSpace(input)
 	if normalized == "" {
 		return ""
 	}
 
 	normalized = urlPattern.ReplaceAllString(normalized, "URL")
-	normalized = mentionPattern.ReplaceAllString(normalized, "")
+	normalized = replaceMentions(normalized, mentions)
 	normalized = strings.NewReplacer("\r\n", "", "\n", "", "\r", "").Replace(normalized)
 	normalized = strings.TrimSpace(normalized)
 	if normalized == "" {
@@ -39,6 +45,31 @@ func NormalizeText(input string) string {
 	}
 
 	return normalized
+}
+
+// replaceMentions replaces <@ID> and <@!ID> patterns with "あっとDisplayName"
+// for known mentions. Unknown mention patterns are removed.
+func replaceMentions(input string, mentions []Mention) string {
+	if len(mentions) == 0 {
+		return mentionPattern.ReplaceAllString(input, "")
+	}
+
+	lookup := make(map[string]string, len(mentions))
+	for _, m := range mentions {
+		lookup[m.ID] = m.DisplayName
+	}
+
+	return mentionPattern.ReplaceAllStringFunc(input, func(match string) string {
+		// Extract the numeric ID from <@ID> or <@!ID>
+		inner := strings.TrimPrefix(match, "<@")
+		inner = strings.TrimSuffix(inner, ">")
+		inner = strings.TrimPrefix(inner, "!")
+
+		if name, ok := lookup[inner]; ok {
+			return fmt.Sprintf("あっと%s", name)
+		}
+		return ""
+	})
 }
 
 func SanitizeFileNameComponent(input string) string {

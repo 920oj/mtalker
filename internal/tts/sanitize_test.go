@@ -10,7 +10,7 @@ import (
 
 func TestNormalizeTextReplacesURLAndNewlines(t *testing.T) {
 	input := "  hello\nhttps://example.com/test\r\nworld  "
-	got := NormalizeText(input)
+	got := NormalizeText(input, nil)
 	want := "helloURLworld"
 	if got != want {
 		t.Fatalf("NormalizeText() = %q, want %q", got, want)
@@ -18,20 +18,27 @@ func TestNormalizeTextReplacesURLAndNewlines(t *testing.T) {
 }
 
 func TestNormalizeTextRemovesMentions(t *testing.T) {
+	mentions := []Mention{
+		{ID: "1234567890123", DisplayName: "おーじぇい"},
+		{ID: "111111111111", DisplayName: "たろう"},
+	}
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name     string
+		input    string
+		mentions []Mention
+		want     string
 	}{
-		{"single mention", "<@1234567890123> こんにちは", "こんにちは"},
-		{"nickname mention", "<@!1234567890123> こんにちは", "こんにちは"},
-		{"mention in middle", "hello <@1234567890123> world", "hello  world"},
-		{"multiple mentions", "<@111111111111> <@222222222222> テスト", "テスト"},
-		{"mention only", "<@1234567890123>", ""},
+		{"display name", "<@1234567890123> こんにちは", mentions, "あっとおーじぇい こんにちは"},
+		{"nickname mention", "<@!1234567890123> こんにちは", mentions, "あっとおーじぇい こんにちは"},
+		{"multiple mentions", "<@111111111111> <@1234567890123> テスト", mentions, "あっとたろう あっとおーじぇい テスト"},
+		{"unknown mention removed", "<@9999999999999> hello", mentions, "hello"},
+		{"nil mentions removes all", "<@1234567890123> hello", nil, "hello"},
+		{"mention only with name", "<@1234567890123>", mentions, "あっとおーじぇい"},
+		{"mention only unknown", "<@9999999999999>", mentions, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeText(tt.input)
+			got := NormalizeText(tt.input, tt.mentions)
 			if got != tt.want {
 				t.Fatalf("NormalizeText(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -41,7 +48,7 @@ func TestNormalizeTextRemovesMentions(t *testing.T) {
 
 func TestNormalizeTextTruncatesOverMaxLength(t *testing.T) {
 	input := strings.Repeat("あ", MaxTextLength+1)
-	got := NormalizeText(input)
+	got := NormalizeText(input, nil)
 	want := TruncatedPlaceholder
 	if got != want {
 		t.Fatalf("NormalizeText() = %q, want %q", got, want)
@@ -49,7 +56,7 @@ func TestNormalizeTextTruncatesOverMaxLength(t *testing.T) {
 }
 
 func TestNormalizeTextReturnsEmptyWhenWhitespaceOnly(t *testing.T) {
-	if got := NormalizeText(" \n\r\t "); got != "" {
+	if got := NormalizeText(" \n\r\t ", nil); got != "" {
 		t.Fatalf("NormalizeText() = %q, want empty string", got)
 	}
 }

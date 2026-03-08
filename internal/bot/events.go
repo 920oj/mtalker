@@ -156,7 +156,15 @@ func (h *Handler) OnMessageCreate(event *events.MessageCreate) {
 		return
 	}
 
-	normalized := tts.NormalizeText(event.Message.Content)
+	mentions := make([]tts.Mention, len(event.Message.Mentions))
+	for i, user := range event.Message.Mentions {
+		mentions[i] = tts.Mention{
+			ID:          user.ID.String(),
+			DisplayName: user.EffectiveName(),
+		}
+	}
+
+	normalized := tts.NormalizeText(event.Message.Content, mentions)
 	if normalized == "" {
 		return
 	}
