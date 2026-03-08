@@ -34,8 +34,9 @@
 - Docker Compose v2 (`docker compose`)
 - Discord Bot トークン
 
-1. [docker-compose.yaml](docker-compose.yaml) の `DISCORD_TOKEN` を自分の Bot トークンへ書き換えます
-2. 次を実行します
+1. このリポジトリをcloneします
+2. [docker-compose.yaml](docker-compose.yaml) の `DISCORD_TOKEN` を自分の Bot トークンへ書き換えます
+3. 次を実行します
 
 ```bash
 docker compose up -d
