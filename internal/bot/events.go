@@ -291,7 +291,9 @@ func (h *Handler) processTTSJoin(event *events.ApplicationCommandInteractionCrea
 		return
 	}
 
-	go h.monitorVoiceSession(sess)
+	// This bot only sends audio.
+	// Reading inbound UDP packets here can surface transient DAVE decrypt errors
+	// from other participants and incorrectly tear down the whole session.
 	go h.runPlaybackWorker(sess)
 	go h.runIdleVoiceKeepAlive(sess)
 
@@ -557,35 +559,6 @@ func (h *Handler) cleanupFailedVoiceSession(client *disgobot.Client, guildID sno
 		defer cancel()
 		sess.Close(closeCtx)
 	}()
-}
-
-func (h *Handler) monitorVoiceSession(sess *session.Session) {
-	conn := sess.Conn()
-	if conn == nil || conn.UDP() == nil {
-		return
-	}
-
-	for {
-		if _, err := conn.UDP().ReadPacket(); err != nil {
-			if sess.Closed() || sess.Context().Err() != nil {
-				return
-			}
-			if errors.Is(err, net.ErrClosed) {
-				return
-			}
-
-			slog.Warn("voice session udp reader stopped",
-				slog.Any("err", err),
-				slog.Uint64("guild_id", uint64(sess.GuildID())),
-				slog.Uint64("voice_channel_id", uint64(sess.VoiceChannelID())),
-			)
-
-			closeCtx, cancel := context.WithTimeout(context.Background(), voiceConnectTimeout)
-			defer cancel()
-			sess.Close(closeCtx)
-			return
-		}
-	}
 }
 
 func (h *Handler) runPlaybackWorker(sess *session.Session) {
