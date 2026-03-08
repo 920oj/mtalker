@@ -30,8 +30,12 @@ func TestNormalizeTextRemovesMentions(t *testing.T) {
 	}{
 		{"display name", "<@1234567890123> こんにちは", mentions, "あっとおーじぇい こんにちは"},
 		{"nickname mention", "<@!1234567890123> こんにちは", mentions, "あっとおーじぇい こんにちは"},
+		{"mention in middle", "さっき <@1234567890123> が言ってた", mentions, "さっき あっとおーじぇい が言ってた"},
+		{"mention at end", "よろしく <@1234567890123>", mentions, "よろしく あっとおーじぇい"},
+		{"multiple mentions in middle", "さっき <@111111111111> と <@1234567890123> が話してた", mentions, "さっき あっとたろう と あっとおーじぇい が話してた"},
 		{"multiple mentions", "<@111111111111> <@1234567890123> テスト", mentions, "あっとたろう あっとおーじぇい テスト"},
 		{"unknown mention removed", "<@9999999999999> hello", mentions, "hello"},
+		{"unknown mention in middle removed", "hello <@9999999999999> world", mentions, "hello  world"},
 		{"nil mentions removes all", "<@1234567890123> hello", nil, "hello"},
 		{"mention only with name", "<@1234567890123>", mentions, "あっとおーじぇい"},
 		{"mention only unknown", "<@9999999999999>", mentions, ""},
